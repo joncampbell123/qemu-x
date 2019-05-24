@@ -9,11 +9,12 @@
  */
 
 #include "qemu/osdep.h"
-#include "hw/xen/xen_backend.h"
-#include "qmp-commands.h"
+#include "qemu/error-report.h"
+#include "hw/xen/xen-legacy-backend.h"
 #include "chardev/char.h"
 #include "sysemu/accel.h"
-#include "migration/migration.h"
+#include "migration/misc.h"
+#include "migration/global_state.h"
 
 //#define DEBUG_XEN
 
@@ -95,13 +96,18 @@ static void xenstore_record_dm_state(struct xs_handle *xs, const char *state)
     char path[50];
 
     if (xs == NULL) {
-        fprintf(stderr, "xenstore connection not initialized\n");
+        error_report("xenstore connection not initialized");
         exit(1);
     }
 
     snprintf(path, sizeof (path), "device-model/%u/state", xen_domid);
-    if (!xs_write(xs, XBT_NULL, path, state, strlen(state))) {
-        fprintf(stderr, "error recording dm state\n");
+    /*
+     * This call may fail when running restricted so don't make it fatal in
+     * that case. Toolstacks should instead use QMP to listen for state changes.
+     */
+    if (!xs_write(xs, XBT_NULL, path, state, strlen(state)) &&
+            !xen_domid_restrict) {
+        error_report("error recording dm state");
         exit(1);
     }
 }
@@ -113,6 +119,19 @@ static void xen_change_state_handler(void *opaque, int running,
     if (running) {
         /* record state running */
         xenstore_record_dm_state(xenstore, "running");
+    }
+}
+
+static void xen_setup_post(MachineState *ms, AccelState *accel)
+{
+    int rc;
+
+    if (xen_domid_restrict) {
+        rc = xen_restrict(xen_domid);
+        if (rc < 0) {
+            perror("xen: failed to restrict");
+            exit(1);
+        }
     }
 }
 
@@ -137,20 +156,25 @@ static int xen_init(MachineState *ms)
         return -1;
     }
     qemu_add_vm_change_state_handler(xen_change_state_handler, NULL);
-
-    global_state_set_optional();
-    savevm_skip_configuration();
-    savevm_skip_section_footers();
-
     return 0;
 }
 
 static void xen_accel_class_init(ObjectClass *oc, void *data)
 {
     AccelClass *ac = ACCEL_CLASS(oc);
+    static GlobalProperty compat[] = {
+        { "migration", "store-global-state", "off" },
+        { "migration", "send-configuration", "off" },
+        { "migration", "send-section-footer", "off" },
+    };
+
     ac->name = "Xen";
     ac->init_machine = xen_init;
+    ac->setup_post = xen_setup_post;
     ac->allowed = &xen_allowed;
+    ac->compat_props = g_ptr_array_new();
+
+    compat_props_add(ac->compat_props, compat, G_N_ELEMENTS(compat));
 }
 
 #define TYPE_XEN_ACCEL ACCEL_CLASS_NAME("xen")

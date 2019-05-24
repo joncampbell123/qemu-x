@@ -20,8 +20,7 @@
 
 #include "qemu/osdep.h"
 #include "sysemu/sysemu.h"
-#include "qapi/qmp/types.h"
-#include "qapi/qmp/qjson.h"
+#include "qapi/qmp/qdict.h"
 #include "monitor/monitor.h"
 #include "hw/pci/pci_bridge.h"
 #include "hw/pci/pcie.h"
@@ -409,7 +408,7 @@ static void pcie_aer_msg(PCIDevice *dev, const PCIEAERMsg *msg)
              */
             return;
         }
-        dev = pci_bridge_get_device(dev->bus);
+        dev = pci_bridge_get_device(pci_get_bus(dev));
     }
 }
 
@@ -813,7 +812,7 @@ const VMStateDescription vmstate_pcie_aer_log = {
     .minimum_version_id = 1,
     .fields = (VMStateField[]) {
         VMSTATE_UINT16(log_num, PCIEAERLog),
-        VMSTATE_UINT16_EQUAL(log_max, PCIEAERLog),
+        VMSTATE_UINT16_EQUAL(log_max, PCIEAERLog, NULL),
         VMSTATE_VALIDATE("log_num <= log_max", pcie_aer_state_log_num_valid),
         VMSTATE_STRUCT_VARRAY_POINTER_UINT16(log, PCIEAERLog, log_num,
                               vmstate_pcie_aer_err, PCIEAERErr),
@@ -1025,7 +1024,7 @@ static int do_pcie_aer_inject_error(Monitor *mon,
     }
     details->id = id;
     details->root_bus = pci_root_bus_path(dev);
-    details->bus = pci_bus_num(dev->bus);
+    details->bus = pci_dev_bus_num(dev);
     details->devfn = dev->devfn;
 
     return 0;

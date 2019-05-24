@@ -84,8 +84,7 @@ static GSource *fd_chr_add_watch(Chardev *chr, GIOCondition cond)
     return qio_channel_create_watch(s->ioc_out, cond);
 }
 
-static void fd_chr_update_read_handler(Chardev *chr,
-                                       GMainContext *context)
+static void fd_chr_update_read_handler(Chardev *chr)
 {
     FDChardev *s = FD_CHARDEV(chr);
 
@@ -94,7 +93,7 @@ static void fd_chr_update_read_handler(Chardev *chr,
         chr->gsource = io_add_watch_poll(chr, s->ioc_in,
                                            fd_chr_read_poll,
                                            fd_chr_read, chr,
-                                           context);
+                                           chr->gcontext);
     }
 }
 
@@ -141,7 +140,6 @@ void qemu_chr_open_fd(Chardev *chr,
     qio_channel_set_name(QIO_CHANNEL(s->ioc_out), name);
     g_free(name);
     qemu_set_nonblock(fd_out);
-    s->chr = chr;
 }
 
 static void char_fd_class_init(ObjectClass *oc, void *data)

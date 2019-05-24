@@ -12,20 +12,21 @@
 
 #include "qemu/osdep.h"
 #include "qemu-common.h"
-#include "migration/migration.h"
+#include "migration.h"
 #include "migration/vmstate.h"
+#include "savevm.h"
 #include "qemu-file.h"
 #include "qemu/bitops.h"
 #include "qemu/error-report.h"
 #include "trace.h"
 #include "qjson.h"
 
-static void vmstate_subsection_save(QEMUFile *f, const VMStateDescription *vmsd,
-                                    void *opaque, QJSON *vmdesc);
+static int vmstate_subsection_save(QEMUFile *f, const VMStateDescription *vmsd,
+                                   void *opaque, QJSON *vmdesc);
 static int vmstate_subsection_load(QEMUFile *f, const VMStateDescription *vmsd,
                                    void *opaque);
 
-static int vmstate_n_elems(void *opaque, VMStateField *field)
+static int vmstate_n_elems(void *opaque, const VMStateField *field)
 {
     int n_elems = 1;
 
@@ -49,7 +50,7 @@ static int vmstate_n_elems(void *opaque, VMStateField *field)
     return n_elems;
 }
 
-static int vmstate_size(void *opaque, VMStateField *field)
+static int vmstate_size(void *opaque, const VMStateField *field)
 {
     int size = field->size;
 
@@ -63,7 +64,8 @@ static int vmstate_size(void *opaque, VMStateField *field)
     return size;
 }
 
-static void vmstate_handle_alloc(void *ptr, VMStateField *field, void *opaque)
+static void vmstate_handle_alloc(void *ptr, const VMStateField *field,
+                                 void *opaque)
 {
     if (field->flags & VMS_POINTER && field->flags & VMS_ALLOC) {
         gsize size = vmstate_size(opaque, field);
@@ -77,7 +79,7 @@ static void vmstate_handle_alloc(void *ptr, VMStateField *field, void *opaque)
 int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
                        void *opaque, int version_id)
 {
-    VMStateField *field = vmsd->fields;
+    const VMStateField *field = vmsd->fields;
     int ret = 0;
 
     trace_vmstate_load_state(vmsd->name, version_id);
@@ -135,6 +137,9 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
                 } else if (field->flags & VMS_STRUCT) {
                     ret = vmstate_load_state(f, field->vmsd, curr_elem,
                                              field->vmsd->version_id);
+                } else if (field->flags & VMS_VSTRUCT) {
+                    ret = vmstate_load_state(f, field->vmsd, curr_elem,
+                                             field->struct_version_id);
                 } else {
                     ret = field->info->get(f, curr_elem, size, field);
                 }
@@ -167,9 +172,10 @@ int vmstate_load_state(QEMUFile *f, const VMStateDescription *vmsd,
     return ret;
 }
 
-static int vmfield_name_num(VMStateField *start, VMStateField *search)
+static int vmfield_name_num(const VMStateField *start,
+                            const VMStateField *search)
 {
-    VMStateField *field;
+    const VMStateField *field;
     int found = 0;
 
     for (field = start; field->name; field++) {
@@ -184,9 +190,10 @@ static int vmfield_name_num(VMStateField *start, VMStateField *search)
     return -1;
 }
 
-static bool vmfield_name_is_unique(VMStateField *start, VMStateField *search)
+static bool vmfield_name_is_unique(const VMStateField *start,
+                                   const VMStateField *search)
 {
-    VMStateField *field;
+    const VMStateField *field;
     int found = 0;
 
     for (field = start; field->name; field++) {
@@ -202,12 +209,14 @@ static bool vmfield_name_is_unique(VMStateField *start, VMStateField *search)
     return true;
 }
 
-static const char *vmfield_get_type_name(VMStateField *field)
+static const char *vmfield_get_type_name(const VMStateField *field)
 {
     const char *type = "unknown";
 
     if (field->flags & VMS_STRUCT) {
         type = "struct";
+    } else if (field->flags & VMS_VSTRUCT) {
+        type = "vstruct";
     } else if (field->info->name) {
         type = field->info->name;
     }
@@ -215,7 +224,7 @@ static const char *vmfield_get_type_name(VMStateField *field)
     return type;
 }
 
-static bool vmsd_can_compress(VMStateField *field)
+static bool vmsd_can_compress(const VMStateField *field)
 {
     if (field->field_exists) {
         /* Dynamically existing fields mess up compression */
@@ -223,7 +232,7 @@ static bool vmsd_can_compress(VMStateField *field)
     }
 
     if (field->flags & VMS_STRUCT) {
-        VMStateField *sfield = field->vmsd->fields;
+        const VMStateField *sfield = field->vmsd->fields;
         while (sfield->name) {
             if (!vmsd_can_compress(sfield)) {
                 /* Child elements can't compress, so can't we */
@@ -242,7 +251,7 @@ static bool vmsd_can_compress(VMStateField *field)
 }
 
 static void vmsd_desc_field_start(const VMStateDescription *vmsd, QJSON *vmdesc,
-                                  VMStateField *field, int i, int max)
+                                  const VMStateField *field, int i, int max)
 {
     char *name, *old_name;
     bool is_array = max > 1;
@@ -281,7 +290,7 @@ static void vmsd_desc_field_start(const VMStateDescription *vmsd, QJSON *vmdesc,
 }
 
 static void vmsd_desc_field_end(const VMStateDescription *vmsd, QJSON *vmdesc,
-                                VMStateField *field, size_t size, int i)
+                                const VMStateField *field, size_t size, int i)
 {
     if (!vmdesc) {
         return;
@@ -307,26 +316,40 @@ bool vmstate_save_needed(const VMStateDescription *vmsd, void *opaque)
 }
 
 
-void vmstate_save_state(QEMUFile *f, const VMStateDescription *vmsd,
-                        void *opaque, QJSON *vmdesc)
+int vmstate_save_state(QEMUFile *f, const VMStateDescription *vmsd,
+                       void *opaque, QJSON *vmdesc_id)
 {
-    VMStateField *field = vmsd->fields;
+    return vmstate_save_state_v(f, vmsd, opaque, vmdesc_id, vmsd->version_id);
+}
+
+int vmstate_save_state_v(QEMUFile *f, const VMStateDescription *vmsd,
+                         void *opaque, QJSON *vmdesc, int version_id)
+{
+    int ret = 0;
+    const VMStateField *field = vmsd->fields;
 
     trace_vmstate_save_state_top(vmsd->name);
 
     if (vmsd->pre_save) {
-        vmsd->pre_save(opaque);
+        ret = vmsd->pre_save(opaque);
+        trace_vmstate_save_state_pre_save_res(vmsd->name, ret);
+        if (ret) {
+            error_report("pre-save failed: %s", vmsd->name);
+            return ret;
+        }
     }
 
     if (vmdesc) {
         json_prop_str(vmdesc, "vmsd_name", vmsd->name);
-        json_prop_int(vmdesc, "version", vmsd->version_id);
+        json_prop_int(vmdesc, "version", version_id);
         json_start_array(vmdesc, "fields");
     }
 
     while (field->name) {
-        if (!field->field_exists ||
-            field->field_exists(opaque, vmsd->version_id)) {
+        if ((field->field_exists &&
+             field->field_exists(opaque, version_id)) ||
+            (!field->field_exists &&
+             field->version_id <= version_id)) {
             void *first_elem = opaque + field->offset;
             int i, n_elems = vmstate_n_elems(opaque, field);
             int size = vmstate_size(opaque, field);
@@ -340,6 +363,7 @@ void vmstate_save_state(QEMUFile *f, const VMStateDescription *vmsd,
             }
             for (i = 0; i < n_elems; i++) {
                 void *curr_elem = first_elem + size * i;
+                ret = 0;
 
                 vmsd_desc_field_start(vmsd, vmdesc_loop, field, i, n_elems);
                 old_offset = qemu_ftell_fast(f);
@@ -350,11 +374,26 @@ void vmstate_save_state(QEMUFile *f, const VMStateDescription *vmsd,
                 if (!curr_elem && size) {
                     /* if null pointer write placeholder and do not follow */
                     assert(field->flags & VMS_ARRAY_OF_POINTER);
-                    vmstate_info_nullptr.put(f, curr_elem, size, NULL, NULL);
+                    ret = vmstate_info_nullptr.put(f, curr_elem, size, NULL,
+                                                   NULL);
                 } else if (field->flags & VMS_STRUCT) {
-                    vmstate_save_state(f, field->vmsd, curr_elem, vmdesc_loop);
+                    ret = vmstate_save_state(f, field->vmsd, curr_elem,
+                                             vmdesc_loop);
+                } else if (field->flags & VMS_VSTRUCT) {
+                    ret = vmstate_save_state_v(f, field->vmsd, curr_elem,
+                                               vmdesc_loop,
+                                               field->struct_version_id);
                 } else {
-                    field->info->put(f, curr_elem, size, field, vmdesc_loop);
+                    ret = field->info->put(f, curr_elem, size, field,
+                                     vmdesc_loop);
+                }
+                if (ret) {
+                    error_report("Save of field %s/%s failed",
+                                 vmsd->name, field->name);
+                    if (vmsd->post_save) {
+                        vmsd->post_save(opaque);
+                    }
+                    return ret;
                 }
 
                 written_bytes = qemu_ftell_fast(f) - old_offset;
@@ -379,13 +418,21 @@ void vmstate_save_state(QEMUFile *f, const VMStateDescription *vmsd,
         json_end_array(vmdesc);
     }
 
-    vmstate_subsection_save(f, vmsd, opaque, vmdesc);
+    ret = vmstate_subsection_save(f, vmsd, opaque, vmdesc);
+
+    if (vmsd->post_save) {
+        int ps_ret = vmsd->post_save(opaque);
+        if (!ret) {
+            ret = ps_ret;
+        }
+    }
+    return ret;
 }
 
 static const VMStateDescription *
 vmstate_get_subsection(const VMStateDescription **sub, char *idstr)
 {
-    while (sub && *sub && (*sub)->needed) {
+    while (sub && *sub) {
         if (strcmp(idstr, (*sub)->name) == 0) {
             return *sub;
         }
@@ -445,24 +492,25 @@ static int vmstate_subsection_load(QEMUFile *f, const VMStateDescription *vmsd,
     return 0;
 }
 
-static void vmstate_subsection_save(QEMUFile *f, const VMStateDescription *vmsd,
-                                    void *opaque, QJSON *vmdesc)
+static int vmstate_subsection_save(QEMUFile *f, const VMStateDescription *vmsd,
+                                   void *opaque, QJSON *vmdesc)
 {
     const VMStateDescription **sub = vmsd->subsections;
-    bool subsection_found = false;
+    bool vmdesc_has_subsections = false;
+    int ret = 0;
 
     trace_vmstate_subsection_save_top(vmsd->name);
-    while (sub && *sub && (*sub)->needed) {
-        if ((*sub)->needed(opaque)) {
+    while (sub && *sub) {
+        if (vmstate_save_needed(*sub, opaque)) {
             const VMStateDescription *vmsdsub = *sub;
             uint8_t len;
 
             trace_vmstate_subsection_save_loop(vmsd->name, vmsdsub->name);
             if (vmdesc) {
                 /* Only create subsection array when we have any */
-                if (!subsection_found) {
+                if (!vmdesc_has_subsections) {
                     json_start_array(vmdesc, "subsections");
-                    subsection_found = true;
+                    vmdesc_has_subsections = true;
                 }
 
                 json_start_object(vmdesc, NULL);
@@ -473,7 +521,10 @@ static void vmstate_subsection_save(QEMUFile *f, const VMStateDescription *vmsd,
             qemu_put_byte(f, len);
             qemu_put_buffer(f, (uint8_t *)vmsdsub->name, len);
             qemu_put_be32(f, vmsdsub->version_id);
-            vmstate_save_state(f, vmsdsub, opaque, vmdesc);
+            ret = vmstate_save_state(f, vmsdsub, opaque, vmdesc);
+            if (ret) {
+                return ret;
+            }
 
             if (vmdesc) {
                 json_end_object(vmdesc);
@@ -482,7 +533,9 @@ static void vmstate_subsection_save(QEMUFile *f, const VMStateDescription *vmsd,
         sub++;
     }
 
-    if (vmdesc && subsection_found) {
+    if (vmdesc_has_subsections) {
         json_end_array(vmdesc);
     }
+
+    return ret;
 }

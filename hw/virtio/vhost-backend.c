@@ -9,11 +9,14 @@
  */
 
 #include "qemu/osdep.h"
-#include <linux/vhost.h>
-#include <sys/ioctl.h>
 #include "hw/virtio/vhost.h"
 #include "hw/virtio/vhost-backend.h"
 #include "qemu/error-report.h"
+#include "standard-headers/linux/vhost_types.h"
+
+#ifdef CONFIG_VHOST_KERNEL
+#include <linux/vhost.h>
+#include <sys/ioctl.h>
 
 static int vhost_kernel_call(struct vhost_dev *dev, unsigned long int request,
                              void *arg)
@@ -52,11 +55,13 @@ static int vhost_kernel_memslots_limit(struct vhost_dev *dev)
                             &s, NULL, NULL)) {
         uint64_t val = g_ascii_strtoull(s, NULL, 10);
         if (!((val == G_MAXUINT64 || !val) && errno)) {
+            g_free(s);
             return val;
         }
         error_report("ignoring invalid max_mem_regions value in vhost module:"
                      " %s", s);
     }
+    g_free(s);
     return limit;
 }
 
@@ -263,18 +268,23 @@ static const VhostOps kernel_ops = {
         .vhost_set_iotlb_callback = vhost_kernel_set_iotlb_callback,
         .vhost_send_device_iotlb_msg = vhost_kernel_send_device_iotlb_msg,
 };
+#endif
 
 int vhost_set_backend_type(struct vhost_dev *dev, VhostBackendType backend_type)
 {
     int r = 0;
 
     switch (backend_type) {
+#ifdef CONFIG_VHOST_KERNEL
     case VHOST_BACKEND_TYPE_KERNEL:
         dev->vhost_ops = &kernel_ops;
         break;
+#endif
+#ifdef CONFIG_VHOST_USER
     case VHOST_BACKEND_TYPE_USER:
         dev->vhost_ops = &user_ops;
         break;
+#endif
     default:
         error_report("Unknown vhost backend type");
         r = -1;
@@ -309,7 +319,10 @@ int vhost_backend_update_device_iotlb(struct vhost_dev *dev,
         return -EINVAL;
     }
 
-    return dev->vhost_ops->vhost_send_device_iotlb_msg(dev, &imsg);
+    if (dev->vhost_ops && dev->vhost_ops->vhost_send_device_iotlb_msg)
+        return dev->vhost_ops->vhost_send_device_iotlb_msg(dev, &imsg);
+
+    return -ENODEV;
 }
 
 int vhost_backend_invalidate_device_iotlb(struct vhost_dev *dev,
@@ -321,7 +334,10 @@ int vhost_backend_invalidate_device_iotlb(struct vhost_dev *dev,
     imsg.size = len;
     imsg.type = VHOST_IOTLB_INVALIDATE;
 
-    return dev->vhost_ops->vhost_send_device_iotlb_msg(dev, &imsg);
+    if (dev->vhost_ops && dev->vhost_ops->vhost_send_device_iotlb_msg)
+        return dev->vhost_ops->vhost_send_device_iotlb_msg(dev, &imsg);
+
+    return -ENODEV;
 }
 
 int vhost_backend_handle_iotlb_msg(struct vhost_dev *dev,

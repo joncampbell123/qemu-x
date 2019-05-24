@@ -28,7 +28,8 @@
 #include <sys/resource.h>
 #endif
 
-#if (defined(_WIN32) || defined RUSAGE_THREAD)
+#if (defined(_WIN32) || defined RUSAGE_THREAD) && \
+    (defined(CONFIG_NETTLE) || defined(CONFIG_GCRYPT))
 #define TEST_LUKS
 #else
 #undef TEST_LUKS
@@ -281,7 +282,7 @@ static void test_block(gconstpointer opaque)
     memset(&header, 0, sizeof(header));
     buffer_init(&header, "header");
 
-    blk = qcrypto_block_create(data->create_opts,
+    blk = qcrypto_block_create(data->create_opts, NULL,
                                test_block_init_func,
                                test_block_write_func,
                                &header,
@@ -300,18 +301,20 @@ static void test_block(gconstpointer opaque)
     object_unparent(sec);
 
     /* Ensure we can't open without the secret */
-    blk = qcrypto_block_open(data->open_opts,
+    blk = qcrypto_block_open(data->open_opts, NULL,
                              test_block_read_func,
                              &header,
                              0,
+                             1,
                              NULL);
     g_assert(blk == NULL);
 
     /* Ensure we can't open without the secret, unless NO_IO */
-    blk = qcrypto_block_open(data->open_opts,
+    blk = qcrypto_block_open(data->open_opts, NULL,
                              test_block_read_func,
                              &header,
                              QCRYPTO_BLOCK_OPEN_NO_IO,
+                             1,
                              &error_abort);
 
     g_assert(qcrypto_block_get_cipher(blk) == NULL);
@@ -322,10 +325,11 @@ static void test_block(gconstpointer opaque)
 
     /* Now open for real with secret */
     sec = test_block_secret();
-    blk = qcrypto_block_open(data->open_opts,
+    blk = qcrypto_block_open(data->open_opts, NULL,
                              test_block_read_func,
                              &header,
                              0,
+                             1,
                              &error_abort);
     g_assert(blk);
 

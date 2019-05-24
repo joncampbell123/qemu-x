@@ -3,7 +3,7 @@
  *
  * (Multiprocessor and extended interrupt not supported)
  *
- * Copyright (c) 2010-2011 AdaCore
+ * Copyright (c) 2010-2019 AdaCore
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -47,7 +47,6 @@
 #define FORCE_OFFSET     0x80
 #define EXTENDED_OFFSET  0xC0
 
-#define TYPE_GRLIB_IRQMP "grlib,irqmp"
 #define GRLIB_IRQMP(obj) OBJECT_CHECK(IRQMP, (obj), TYPE_GRLIB_IRQMP)
 
 typedef struct IRQMPState IRQMPState;
@@ -106,6 +105,15 @@ static void grlib_irqmp_check_irqs(IRQMPState *state)
     }
 }
 
+static void grlib_irqmp_ack_mask(IRQMPState *state, uint32_t mask)
+{
+    /* Clear registers */
+    state->pending  &= ~mask;
+    state->force[0] &= ~mask; /* Only CPU 0 (No SMP support) */
+
+    grlib_irqmp_check_irqs(state);
+}
+
 void grlib_irqmp_ack(DeviceState *dev, int intno)
 {
     IRQMP        *irqmp = GRLIB_IRQMP(dev);
@@ -120,11 +128,7 @@ void grlib_irqmp_ack(DeviceState *dev, int intno)
 
     trace_grlib_irqmp_ack(intno);
 
-    /* Clear registers */
-    state->pending  &= ~mask;
-    state->force[0] &= ~mask; /* Only CPU 0 (No SMP support) */
-
-    grlib_irqmp_check_irqs(state);
+    grlib_irqmp_ack_mask(state, mask);
 }
 
 void grlib_irqmp_set_irq(void *opaque, int irq, int level)
@@ -251,7 +255,7 @@ static void grlib_irqmp_write(void *opaque, hwaddr addr,
 
     case CLEAR_OFFSET:
         value &= ~1; /* clean up the value */
-        state->pending &= ~value;
+        grlib_irqmp_ack_mask(state, value);
         return;
 
     case MP_STATUS_OFFSET:

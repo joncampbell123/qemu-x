@@ -15,6 +15,7 @@
 #include "qemu/osdep.h"
 #include "cpu.h"
 #include "exec/exec-all.h"
+#include "qemu/error-report.h"
 
 #undef DEBUG_UC32
 
@@ -214,8 +215,9 @@ do_fault:
     return code;
 }
 
-int uc32_cpu_handle_mmu_fault(CPUState *cs, vaddr address,
-                              int access_type, int mmu_idx)
+bool uc32_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+                       MMUAccessType access_type, int mmu_idx,
+                       bool probe, uintptr_t retaddr)
 {
     UniCore32CPU *cpu = UNICORE32_CPU(cs);
     CPUUniCore32State *env = &cpu->env;
@@ -256,7 +258,11 @@ int uc32_cpu_handle_mmu_fault(CPUState *cs, vaddr address,
         phys_addr &= TARGET_PAGE_MASK;
         address &= TARGET_PAGE_MASK;
         tlb_set_page(cs, address, phys_addr, prot, mmu_idx, page_size);
-        return 0;
+        return true;
+    }
+
+    if (probe) {
+        return false;
     }
 
     env->cp0.c3_faultstatus = ret;
@@ -266,13 +272,12 @@ int uc32_cpu_handle_mmu_fault(CPUState *cs, vaddr address,
     } else {
         cs->exception_index = UC32_EXCP_DTRAP;
     }
-    return ret;
+    cpu_loop_exit_restore(cs, retaddr);
 }
 
 hwaddr uc32_cpu_get_phys_page_debug(CPUState *cs, vaddr addr)
 {
-    UniCore32CPU *cpu = UNICORE32_CPU(cs);
-
-    cpu_abort(CPU(cpu), "%s not supported yet\n", __func__);
-    return addr;
+    error_report("function uc32_cpu_get_phys_page_debug not "
+                    "implemented, aborting");
+    return -1;
 }

@@ -18,8 +18,8 @@
  */
 
 #include "qemu/osdep.h"
-#include "sysemu/sysemu.h"
 #include "qapi/error.h"
+#include "sysemu/sysemu.h"
 #include "qemu/log.h"
 #include "hw/ppc/xics.h"
 
@@ -161,9 +161,18 @@ static const MemoryRegionOps pnv_icp_ops = {
 
 static void pnv_icp_realize(DeviceState *dev, Error **errp)
 {
-    PnvICPState *icp = PNV_ICP(dev);
+    ICPState *icp = ICP(dev);
+    PnvICPState *pnv_icp = PNV_ICP(icp);
+    ICPStateClass *icpc = ICP_GET_CLASS(icp);
+    Error *local_err = NULL;
 
-    memory_region_init_io(&icp->mmio, OBJECT(dev), &pnv_icp_ops,
+    icpc->parent_realize(dev, &local_err);
+    if (local_err) {
+        error_propagate(errp, local_err);
+        return;
+    }
+
+    memory_region_init_io(&pnv_icp->mmio, OBJECT(icp), &pnv_icp_ops,
                           icp, "icp-thread", 0x1000);
 }
 
@@ -172,7 +181,8 @@ static void pnv_icp_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     ICPStateClass *icpc = ICP_CLASS(klass);
 
-    icpc->realize = pnv_icp_realize;
+    device_class_set_parent_realize(dc, pnv_icp_realize,
+                                    &icpc->parent_realize);
     dc->desc = "PowerNV ICP";
 }
 

@@ -8,7 +8,7 @@
  * This work is licensed under the terms of the GNU GPL, version 2 or later.
  * See the COPYING file in the top-level directory.
  *
- * See docs/atomics.txt for discussion about the guarantees each
+ * See docs/devel/atomics.txt for discussion about the guarantees each
  * atomic primitive is meant to provide.
  */
 
@@ -98,10 +98,11 @@
  * We'd prefer not want to pull in everything else TCG related, so handle
  * those few cases by hand.
  *
- * Note that x32 is fully detected with __x64_64__ + _ILP32, and that for
- * Sparc we always force the use of sparcv9 in configure.
+ * Note that x32 is fully detected with __x86_64__ + _ILP32, and that for
+ * Sparc we always force the use of sparcv9 in configure. MIPS n32 (ILP32) &
+ * n64 (LP64) ABIs are both detected using __mips64.
  */
-#if defined(__x86_64__) || defined(__sparc__)
+#if defined(__x86_64__) || defined(__sparc__) || defined(__mips64)
 # define ATOMIC_REG_SIZE  8
 #else
 # define ATOMIC_REG_SIZE  sizeof(void *)
@@ -187,7 +188,7 @@
 /* Returns the eventual value, failed or not */
 #define atomic_cmpxchg__nocheck(ptr, old, new)    ({                    \
     typeof_strip_qual(*ptr) _old = (old);                               \
-    __atomic_compare_exchange_n(ptr, &_old, new, false,                 \
+    (void)__atomic_compare_exchange_n(ptr, &_old, new, false,           \
                               __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);      \
     _old;                                                               \
 })
@@ -427,7 +428,7 @@
  * sequentially consistent operations.
  *
  * As long as they are used as paired operations they are safe to
- * use. See docs/atomic.txt for more discussion.
+ * use. See docs/devel/atomics.txt for more discussion.
  */
 
 #ifndef atomic_mb_read
@@ -441,5 +442,47 @@
     smp_mb();                                           \
 } while(0)
 #endif
+
+#define atomic_fetch_inc_nonzero(ptr) ({                                \
+    typeof_strip_qual(*ptr) _oldn = atomic_read(ptr);                   \
+    while (_oldn && atomic_cmpxchg(ptr, _oldn, _oldn + 1) != _oldn) {   \
+        _oldn = atomic_read(ptr);                                       \
+    }                                                                   \
+    _oldn;                                                              \
+})
+
+/* Abstractions to access atomically (i.e. "once") i64/u64 variables */
+#ifdef CONFIG_ATOMIC64
+static inline int64_t atomic_read_i64(const int64_t *ptr)
+{
+    /* use __nocheck because sizeof(void *) might be < sizeof(u64) */
+    return atomic_read__nocheck(ptr);
+}
+
+static inline uint64_t atomic_read_u64(const uint64_t *ptr)
+{
+    return atomic_read__nocheck(ptr);
+}
+
+static inline void atomic_set_i64(int64_t *ptr, int64_t val)
+{
+    atomic_set__nocheck(ptr, val);
+}
+
+static inline void atomic_set_u64(uint64_t *ptr, uint64_t val)
+{
+    atomic_set__nocheck(ptr, val);
+}
+
+static inline void atomic64_init(void)
+{
+}
+#else /* !CONFIG_ATOMIC64 */
+int64_t  atomic_read_i64(const int64_t *ptr);
+uint64_t atomic_read_u64(const uint64_t *ptr);
+void atomic_set_i64(int64_t *ptr, int64_t val);
+void atomic_set_u64(uint64_t *ptr, uint64_t val);
+void atomic64_init(void);
+#endif /* !CONFIG_ATOMIC64 */
 
 #endif /* QEMU_ATOMIC_H */

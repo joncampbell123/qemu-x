@@ -40,6 +40,13 @@ static Property ccw_device_properties[] = {
     DEFINE_PROP_END_OF_LIST(),
 };
 
+static void ccw_device_reset(DeviceState *d)
+{
+    CcwDevice *ccw_dev = CCW_DEVICE(d);
+
+    css_reset_sch(ccw_dev->sch);
+}
+
 static void ccw_device_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -48,7 +55,18 @@ static void ccw_device_class_init(ObjectClass *klass, void *data)
     k->realize = ccw_device_realize;
     k->refill_ids = ccw_device_refill_ids;
     dc->props = ccw_device_properties;
+    dc->reset = ccw_device_reset;
 }
+
+const VMStateDescription vmstate_ccw_dev = {
+    .name = "s390_ccw_dev",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_STRUCT_POINTER(sch, CcwDevice, vmstate_subch_dev, SubchDev),
+        VMSTATE_END_OF_LIST()
+    }
+};
 
 static const TypeInfo ccw_device_info = {
     .name = TYPE_CCW_DEVICE,

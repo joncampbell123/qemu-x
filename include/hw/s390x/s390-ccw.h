@@ -27,13 +27,14 @@ typedef struct S390CCWDevice {
     CcwDevice parent_obj;
     CssDevId hostid;
     char *mdevid;
+    int32_t bootindex;
 } S390CCWDevice;
 
 typedef struct S390CCWDeviceClass {
     CCWDeviceClass parent_class;
     void (*realize)(S390CCWDevice *dev, char *sysfsdev, Error **errp);
     void (*unrealize)(S390CCWDevice *dev, Error **errp);
-    int (*handle_request) (ORB *, SCSW *, void *);
+    IOInstEnding (*handle_request) (SubchDev *sch);
 } S390CCWDeviceClass;
 
 #endif

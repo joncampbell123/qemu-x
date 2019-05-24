@@ -49,6 +49,10 @@ struct PCIESlot {
     /* pci express switch port with slot */
     uint8_t     chassis;
     uint16_t    slot;
+
+    PCIExpLinkSpeed speed;
+    PCIExpLinkWidth width;
+
     QLIST_ENTRY(PCIESlot) next;
 };
 
@@ -65,6 +69,7 @@ void pcie_chassis_del_slot(PCIESlot *s);
 
 typedef struct PCIERootPortClass {
     PCIDeviceClass parent_class;
+    DeviceRealize parent_realize;
 
     uint8_t (*aer_vector)(const PCIDevice *dev);
     int (*interrupts_init)(PCIDevice *dev, Error **errp);
@@ -73,6 +78,7 @@ typedef struct PCIERootPortClass {
     int exp_offset;
     int aer_offset;
     int ssvid_offset;
+    int acs_offset;    /* If nonzero, optional ACS capability offset */
     int ssid;
 } PCIERootPortClass;
 

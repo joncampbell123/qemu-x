@@ -236,7 +236,6 @@ static void tcx_update_display(void *opaque)
     dd = surface_stride(surface);
     ds = 1024;
 
-    memory_region_sync_dirty_bitmap(&ts->vram_mem);
     snap = memory_region_snapshot_and_clear_dirty(&ts->vram_mem, 0x0,
                                              memory_region_size(&ts->vram_mem),
                                              DIRTY_MEMORY_VGA);
@@ -292,7 +291,6 @@ static void tcx24_update_display(void *opaque)
     dd = surface_stride(surface);
     ds = 1024;
 
-    memory_region_sync_dirty_bitmap(&ts->vram_mem);
     snap = memory_region_snapshot_and_clear_dirty(&ts->vram_mem, 0x0,
                                              memory_region_size(&ts->vram_mem),
                                              DIRTY_MEMORY_VGA);
@@ -752,7 +750,7 @@ static void tcx_initfn(Object *obj)
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
     TCXState *s = TCX(obj);
 
-    memory_region_init_ram(&s->rom, obj, "tcx.prom", FCODE_MAX_ROM_SIZE,
+    memory_region_init_ram_nomigrate(&s->rom, obj, "tcx.prom", FCODE_MAX_ROM_SIZE,
                            &error_fatal);
     memory_region_set_readonly(&s->rom, true);
     sysbus_init_mmio(sbd, &s->rom);
@@ -812,7 +810,7 @@ static void tcx_realizefn(DeviceState *dev, Error **errp)
     uint8_t *vram_base;
     char *fcode_filename;
 
-    memory_region_init_ram(&s->vram_mem, OBJECT(s), "tcx.vram",
+    memory_region_init_ram_nomigrate(&s->vram_mem, OBJECT(s), "tcx.vram",
                            s->vram_size * (1 + 4 + 4), &error_fatal);
     vmstate_register_ram_global(&s->vram_mem);
     memory_region_set_log(&s->vram_mem, true, DIRTY_MEMORY_VGA);
@@ -825,7 +823,7 @@ static void tcx_realizefn(DeviceState *dev, Error **errp)
         ret = load_image_mr(fcode_filename, &s->rom);
         g_free(fcode_filename);
         if (ret < 0 || ret > FCODE_MAX_ROM_SIZE) {
-            error_report("tcx: could not load prom '%s'", TCX_ROM_FILE);
+            warn_report("tcx: could not load prom '%s'", TCX_ROM_FILE);
         }
     }
 

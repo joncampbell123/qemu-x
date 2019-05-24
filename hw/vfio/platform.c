@@ -24,6 +24,7 @@
 #include "qemu/range.h"
 #include "sysemu/sysemu.h"
 #include "exec/memory.h"
+#include "exec/address-spaces.h"
 #include "qemu/queue.h"
 #include "hw/sysbus.h"
 #include "trace.h"
@@ -71,7 +72,7 @@ static VFIOINTp *vfio_init_intp(VFIODevice *vbasedev,
         g_free(intp->interrupt);
         g_free(intp);
         error_setg_errno(errp, -ret,
-                         "failed to initialize trigger eventd notifier");
+                         "failed to initialize trigger eventfd notifier");
         return NULL;
     }
     if (vfio_irq_is_automasked(intp)) {
@@ -83,7 +84,7 @@ static VFIOINTp *vfio_init_intp(VFIODevice *vbasedev,
             g_free(intp->unmask);
             g_free(intp);
             error_setg_errno(errp, -ret,
-                             "failed to initialize resample eventd notifier");
+                             "failed to initialize resample eventfd notifier");
             return NULL;
         }
     }
@@ -120,11 +121,11 @@ static int vfio_set_trigger_eventfd(VFIOINTp *intp,
     *pfd = event_notifier_get_fd(intp->interrupt);
     qemu_set_fd_handler(*pfd, (IOHandler *)handler, NULL, intp);
     ret = ioctl(vbasedev->fd, VFIO_DEVICE_SET_IRQS, irq_set);
-    g_free(irq_set);
     if (ret < 0) {
         error_report("vfio: Failed to set trigger eventfd: %m");
         qemu_set_fd_handler(*pfd, NULL, NULL, NULL);
     }
+    g_free(irq_set);
     return ret;
 }
 
@@ -561,7 +562,7 @@ static int vfio_base_device_init(VFIODevice *vbasedev, Error **errp)
     /* @sysfsdev takes precedence over @host */
     if (vbasedev->sysfsdev) {
         g_free(vbasedev->name);
-        vbasedev->name = g_strdup(basename(vbasedev->sysfsdev));
+        vbasedev->name = g_path_get_basename(vbasedev->sysfsdev);
     } else {
         if (!vbasedev->name || strchr(vbasedev->name, '/')) {
             error_setg(errp, "wrong host device name");
@@ -640,7 +641,10 @@ static void vfio_platform_realize(DeviceState *dev, Error **errp)
     int i, ret;
 
     vbasedev->type = VFIO_DEVICE_TYPE_PLATFORM;
+    vbasedev->dev = dev;
     vbasedev->ops = &vfio_platform_ops;
+
+    qemu_mutex_init(&vdev->intp_mutex);
 
     trace_vfio_platform_realize(vbasedev->sysfsdev ?
                                 vbasedev->sysfsdev : vbasedev->name,
@@ -651,10 +655,32 @@ static void vfio_platform_realize(DeviceState *dev, Error **errp)
         goto out;
     }
 
+    if (!vdev->compat) {
+        GError *gerr = NULL;
+        gchar *contents;
+        gsize length;
+        char *path;
+
+        path = g_strdup_printf("%s/of_node/compatible", vbasedev->sysfsdev);
+        if (!g_file_get_contents(path, &contents, &length, &gerr)) {
+            error_setg(errp, "%s", gerr->message);
+            g_error_free(gerr);
+            g_free(path);
+            return;
+        }
+        g_free(path);
+        vdev->compat = contents;
+        for (vdev->num_compat = 0; length; vdev->num_compat++) {
+            size_t skip = strlen(contents) + 1;
+            contents += skip;
+            length -= skip;
+        }
+    }
+
     for (i = 0; i < vbasedev->num_regions; i++) {
         if (vfio_region_mmap(vdev->regions[i])) {
-            error_report("%s mmap unsupported. Performance may be slow",
-                         memory_region_name(vdev->regions[i]->mem));
+            warn_report("%s mmap unsupported, performance may be slow",
+                        memory_region_name(vdev->regions[i]->mem));
         }
         sysbus_init_mmio(sbdev, vdev->regions[i]->mem);
     }
@@ -664,14 +690,14 @@ out:
     }
 
     if (vdev->vbasedev.name) {
-        error_prepend(errp, ERR_PREFIX, vdev->vbasedev.name);
+        error_prepend(errp, VFIO_MSG_PREFIX, vdev->vbasedev.name);
     } else {
         error_prepend(errp, "vfio error: ");
     }
 }
 
 static const VMStateDescription vfio_platform_vmstate = {
-    .name = TYPE_VFIO_PLATFORM,
+    .name = "vfio-platform",
     .unmigratable = 1,
 };
 
@@ -696,6 +722,8 @@ static void vfio_platform_class_init(ObjectClass *klass, void *data)
     dc->desc = "VFIO-based platform device assignment";
     sbc->connect_irq_notifier = vfio_start_irqfd_injection;
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
+    /* Supported by TYPE_VIRT_MACHINE */
+    dc->user_creatable = true;
 }
 
 static const TypeInfo vfio_platform_dev_info = {
@@ -704,7 +732,6 @@ static const TypeInfo vfio_platform_dev_info = {
     .instance_size = sizeof(VFIOPlatformDevice),
     .class_init = vfio_platform_class_init,
     .class_size = sizeof(VFIOPlatformDeviceClass),
-    .abstract   = true,
 };
 
 static void register_vfio_platform_dev_type(void)

@@ -28,7 +28,7 @@ static int handle_payload_3270_read(EmulatedCcw3270Device *dev, CCW1 *ccw)
         return -EFAULT;
     }
 
-    len = ck->read_payload_3270(dev, ccw->cda, ccw->count);
+    len = ck->read_payload_3270(dev);
     ccw_dev->sch->curr_status.scsw.count = ccw->count - len;
 
     return 0;
@@ -45,7 +45,7 @@ static int handle_payload_3270_write(EmulatedCcw3270Device *dev, CCW1 *ccw)
         return -EFAULT;
     }
 
-    len = ck->write_payload_3270(dev, ccw->cmd_code, ccw->cda, ccw->count);
+    len = ck->write_payload_3270(dev, ccw->cmd_code);
 
     if (len <= 0) {
         return -EIO;
@@ -78,13 +78,13 @@ static int emulated_ccw_3270_cb(SubchDev *sch, CCW1 ccw)
 
     if (rc == -EIO) {
         /* I/O error, specific devices generate specific conditions */
-        SCSW *s = &sch->curr_status.scsw;
+        SCHIB *schib = &sch->curr_status;
 
         sch->curr_status.scsw.dstat = SCSW_DSTAT_UNIT_CHECK;
         sch->sense_data[0] = 0x40;    /* intervention-req */
-        s->ctrl &= ~SCSW_ACTL_START_PEND;
-        s->ctrl &= ~SCSW_CTRL_MASK_STCTL;
-        s->ctrl |= SCSW_STCTL_PRIMARY | SCSW_STCTL_SECONDARY |
+        schib->scsw.ctrl &= ~SCSW_ACTL_START_PEND;
+        schib->scsw.ctrl &= ~SCSW_CTRL_MASK_STCTL;
+        schib->scsw.ctrl |= SCSW_STCTL_PRIMARY | SCSW_STCTL_SECONDARY |
                    SCSW_STCTL_ALERT | SCSW_STCTL_STATUS_PEND;
     }
 
@@ -98,13 +98,10 @@ static void emulated_ccw_3270_realize(DeviceState *ds, Error **errp)
     EmulatedCcw3270Class *ck = EMULATED_CCW_3270_GET_CLASS(dev);
     CcwDevice *cdev = CCW_DEVICE(ds);
     CCWDeviceClass *cdk = CCW_DEVICE_GET_CLASS(cdev);
-    DeviceState *parent = DEVICE(cdev);
-    BusState *qbus = qdev_get_parent_bus(parent);
-    VirtualCssBus *cbus = VIRTUAL_CSS_BUS(qbus);
     SubchDev *sch;
     Error *err = NULL;
 
-    sch = css_create_sch(cdev->devno, true, cbus->squash_mcss, errp);
+    sch = css_create_sch(cdev->devno, errp);
     if (!sch) {
         return;
     }
@@ -126,6 +123,7 @@ static void emulated_ccw_3270_realize(DeviceState *ds, Error **errp)
     sch->id.cu_type = EMULATED_CCW_3270_CU_TYPE;
     css_sch_build_virtual_schib(sch, (uint8_t)chpid,
                                 EMULATED_CCW_3270_CHPID_TYPE);
+    sch->do_subchannel_work = do_subchannel_work_virtual;
     sch->ccw_cb = emulated_ccw_3270_cb;
 
     ck->init(dev, &err);
@@ -159,6 +157,7 @@ static void emulated_ccw_3270_class_init(ObjectClass *klass, void *data)
     dc->bus_type = TYPE_VIRTUAL_CSS_BUS;
     dc->realize = emulated_ccw_3270_realize;
     dc->hotpluggable = false;
+    set_bit(DEVICE_CATEGORY_DISPLAY, dc->categories);
 }
 
 static const TypeInfo emulated_ccw_3270_info = {

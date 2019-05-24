@@ -21,6 +21,7 @@
 #include "qemu/osdep.h"
 #include "io/dns-resolver.h"
 #include "qapi/clone-visitor.h"
+#include "qapi/qapi-visit-sockets.h"
 #include "qemu/sockets.h"
 #include "qapi/error.h"
 #include "qemu/cutils.h"
@@ -116,8 +117,10 @@ static int qio_dns_resolver_lookup_sync_inet(QIODNSResolver *resolver,
             .numeric = true,
             .has_to = iaddr->has_to,
             .to = iaddr->to,
-            .has_ipv4 = false,
-            .has_ipv6 = false,
+            .has_ipv4 = iaddr->has_ipv4,
+            .ipv4 = iaddr->ipv4,
+            .has_ipv6 = iaddr->has_ipv6,
+            .ipv6 = iaddr->ipv6,
         };
 
         (*addrs)[i] = newaddr;
@@ -231,7 +234,8 @@ void qio_dns_resolver_lookup_async(QIODNSResolver *resolver,
     qio_task_run_in_thread(task,
                            qio_dns_resolver_lookup_worker,
                            data,
-                           qio_dns_resolver_lookup_data_free);
+                           qio_dns_resolver_lookup_data_free,
+                           NULL);
 }
 
 

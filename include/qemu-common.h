@@ -12,15 +12,16 @@
 #ifndef QEMU_COMMON_H
 #define QEMU_COMMON_H
 
-#include "qemu/fprintf-fn.h"
-
 #define TFR(expr) do { if ((expr) != -1) break; } while (errno == EINTR)
 
-#include "qemu/option.h"
-
 /* Copyright string for -version arguments, About dialogs, etc */
-#define QEMU_COPYRIGHT "Copyright (c) 2003-2017 " \
+#define QEMU_COPYRIGHT "Copyright (c) 2003-2019 " \
     "Fabrice Bellard and the QEMU Project developers"
+
+/* Bug reporting information for --help arguments, About dialogs, etc */
+#define QEMU_HELP_BOTTOM \
+    "See <https://qemu.org/contribute/report-a-bug> for how to report bugs.\n" \
+    "More information on the QEMU project at <https://qemu.org>."
 
 /* main function, renamed */
 #if defined(CONFIG_COCOA)
@@ -76,8 +77,13 @@ int qemu_openpty_raw(int *aslave, char *pty_name);
     sendto(sockfd, buf, len, flags, destaddr, addrlen)
 #endif
 
+extern bool tcg_allowed;
 void tcg_exec_init(unsigned long tb_size);
-bool tcg_enabled(void);
+#ifdef CONFIG_TCG
+#define tcg_enabled() (tcg_allowed)
+#else
+#define tcg_enabled() 0
+#endif
 
 void cpu_exec_init_all(void);
 void cpu_exec_step_atomic(CPUState *cpu);
@@ -129,7 +135,7 @@ char *qemu_find_file(int type, const char *name);
 /* OS specific functions */
 void os_setup_early_signal_handling(void);
 char *os_find_datadir(void);
-void os_parse_cmd_args(int index, const char *optarg);
+int os_parse_cmd_args(int index, const char *optarg);
 
 #include "qemu/module.h"
 

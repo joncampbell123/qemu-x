@@ -5,7 +5,8 @@
 #include "hw/boards.h"
 #include "migration/cpu.h"
 
-static int get_fpcr(QEMUFile *f, void *opaque, size_t size, VMStateField *field)
+static int get_fpcr(QEMUFile *f, void *opaque, size_t size,
+                    const VMStateField *field)
 {
     CPUAlphaState *env = opaque;
     cpu_alpha_store_fpcr(env, qemu_get_be64(f));
@@ -13,7 +14,7 @@ static int get_fpcr(QEMUFile *f, void *opaque, size_t size, VMStateField *field)
 }
 
 static int put_fpcr(QEMUFile *f, void *opaque, size_t size,
-                    VMStateField *field, QJSON *vmdesc)
+                    const VMStateField *field, QJSON *vmdesc)
 {
     CPUAlphaState *env = opaque;
     qemu_put_be64(f, cpu_alpha_load_fpcr(env));
@@ -48,11 +49,7 @@ static VMStateField vmstate_env_fields[] = {
     VMSTATE_UINTTL(lock_addr, CPUAlphaState),
     VMSTATE_UINTTL(lock_value, CPUAlphaState),
 
-    VMSTATE_UINT8(ps, CPUAlphaState),
-    VMSTATE_UINT8(intr_flag, CPUAlphaState),
-    VMSTATE_UINT8(pal_mode, CPUAlphaState),
-    VMSTATE_UINT8(fen, CPUAlphaState),
-
+    VMSTATE_UINT32(flags, CPUAlphaState),
     VMSTATE_UINT32(pcc_ofs, CPUAlphaState),
 
     VMSTATE_UINTTL(trap_arg0, CPUAlphaState),
@@ -74,8 +71,8 @@ static VMStateField vmstate_env_fields[] = {
 
 static const VMStateDescription vmstate_env = {
     .name = "env",
-    .version_id = 2,
-    .minimum_version_id = 2,
+    .version_id = 3,
+    .minimum_version_id = 3,
     .fields = vmstate_env_fields,
 };
 

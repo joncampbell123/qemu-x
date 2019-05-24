@@ -219,8 +219,7 @@ extern const struct VMStateDescription vmstate_lm32_cpu;
 
 void lm32_cpu_do_interrupt(CPUState *cpu);
 bool lm32_cpu_exec_interrupt(CPUState *cs, int int_req);
-void lm32_cpu_dump_state(CPUState *cpu, FILE *f, fprintf_function cpu_fprintf,
-                         int flags);
+void lm32_cpu_dump_state(CPUState *cpu, FILE *f, int flags);
 hwaddr lm32_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
 int lm32_cpu_gdb_read_register(CPUState *cpu, uint8_t *buf, int reg);
 int lm32_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
@@ -238,13 +237,12 @@ static inline lm32_wp_t lm32_wp_type(uint32_t dc, int idx)
     return (dc >> (idx+1)*2) & 0x3;
 }
 
-LM32CPU *cpu_lm32_init(const char *cpu_model);
 /* you can call this signal handler from your SIGBUS and SIGSEGV
    signal handlers to inform the virtual CPU of exceptions. non zero
    is returned if the signal was handled by the virtual CPU.  */
 int cpu_lm32_signal_handler(int host_signum, void *pinfo,
                           void *puc);
-void lm32_cpu_list(FILE *f, fprintf_function cpu_fprintf);
+void lm32_cpu_list(void);
 void lm32_translate_init(void);
 void cpu_lm32_set_phys_msb_ignore(CPULM32State *env, int value);
 void QEMU_NORETURN raise_exception(CPULM32State *env, int index);
@@ -256,13 +254,16 @@ void lm32_watchpoint_insert(CPULM32State *env, int index, target_ulong address,
 void lm32_watchpoint_remove(CPULM32State *env, int index);
 bool lm32_cpu_do_semihosting(CPUState *cs);
 
-#define cpu_init(cpu_model) CPU(cpu_lm32_init(cpu_model))
+#define LM32_CPU_TYPE_SUFFIX "-" TYPE_LM32_CPU
+#define LM32_CPU_TYPE_NAME(model) model LM32_CPU_TYPE_SUFFIX
+#define CPU_RESOLVING_TYPE TYPE_LM32_CPU
 
 #define cpu_list lm32_cpu_list
 #define cpu_signal_handler cpu_lm32_signal_handler
 
-int lm32_cpu_handle_mmu_fault(CPUState *cpu, vaddr address, int rw,
-                              int mmu_idx);
+bool lm32_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+                       MMUAccessType access_type, int mmu_idx,
+                       bool probe, uintptr_t retaddr);
 
 #include "exec/cpu-all.h"
 

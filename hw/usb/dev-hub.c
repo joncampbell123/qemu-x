@@ -26,7 +26,7 @@
 #include "qemu-common.h"
 #include "trace.h"
 #include "hw/usb.h"
-#include "hw/usb/desc.h"
+#include "desc.h"
 #include "qemu/error-report.h"
 
 #define NUM_PORTS 8
@@ -109,7 +109,7 @@ static const USBDescIface desc_iface_hub = {
         {
             .bEndpointAddress      = USB_DIR_IN | 0x01,
             .bmAttributes          = USB_ENDPOINT_XFER_INT,
-            .wMaxPacketSize        = 1 + (NUM_PORTS + 7) / 8,
+            .wMaxPacketSize        = 1 + DIV_ROUND_UP(NUM_PORTS, 8),
             .bInterval             = 0xff,
         },
     }
@@ -147,13 +147,13 @@ static const USBDesc desc_hub = {
 
 static const uint8_t qemu_hub_hub_descriptor[] =
 {
-	0x00,			/*  u8  bLength; patched in later */
-	0x29,			/*  u8  bDescriptorType; Hub-descriptor */
-	0x00,			/*  u8  bNbrPorts; (patched later) */
-	0x0a,			/* u16  wHubCharacteristics; */
-	0x00,			/*   (per-port OC, no power switching) */
-	0x01,			/*  u8  bPwrOn2pwrGood; 2ms */
-	0x00			/*  u8  bHubContrCurrent; 0 mA */
+        0x00,			/*  u8  bLength; patched in later */
+        0x29,			/*  u8  bDescriptorType; Hub-descriptor */
+        0x00,			/*  u8  bNbrPorts; (patched later) */
+        0x0a,			/* u16  wHubCharacteristics; */
+        0x00,			/*   (per-port OC, no power switching) */
+        0x01,			/*  u8  bPwrOn2pwrGood; 2ms */
+        0x00			/*  u8  bHubContrCurrent; 0 mA */
 
         /* DeviceRemovable and PortPwrCtrlMask patched in later */
 };
@@ -190,6 +190,10 @@ static void usb_hub_detach(USBPort *port1)
     if (port->wPortStatus & PORT_STAT_ENABLE) {
         port->wPortStatus &= ~PORT_STAT_ENABLE;
         port->wPortChange |= PORT_STAT_C_ENABLE;
+    }
+    if (port->wPortStatus & PORT_STAT_SUSPEND) {
+        port->wPortStatus &= ~PORT_STAT_SUSPEND;
+        port->wPortChange |= PORT_STAT_C_SUSPEND;
     }
     usb_wakeup(s->intr, 0);
 }
@@ -442,14 +446,14 @@ static void usb_hub_handle_control(USBDevice *dev, USBPacket *p,
             data[2] = NUM_PORTS;
 
             /* fill DeviceRemovable bits */
-            limit = ((NUM_PORTS + 1 + 7) / 8) + 7;
+            limit = DIV_ROUND_UP(NUM_PORTS + 1, 8) + 7;
             for (n = 7; n < limit; n++) {
                 data[n] = 0x00;
                 var_hub_size++;
             }
 
             /* fill PortPwrCtrlMask bits */
-            limit = limit + ((NUM_PORTS + 7) / 8);
+            limit = limit + DIV_ROUND_UP(NUM_PORTS, 8);
             for (;n < limit; n++) {
                 data[n] = 0xff;
                 var_hub_size++;
@@ -477,7 +481,7 @@ static void usb_hub_handle_data(USBDevice *dev, USBPacket *p)
             unsigned int status;
             uint8_t buf[4];
             int i, n;
-            n = (NUM_PORTS + 1 + 7) / 8;
+            n = DIV_ROUND_UP(NUM_PORTS + 1, 8);
             if (p->iov.size == 1) { /* FreeBSD workaround */
                 n = 1;
             } else if (n > p->iov.size) {

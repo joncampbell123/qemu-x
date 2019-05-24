@@ -12,6 +12,7 @@
 #include "qapi/clone-visitor.h"
 #include "qapi/visitor-impl.h"
 #include "qapi/error.h"
+#include "qapi/qmp/qnull.h"
 
 struct QapiCloneVisitor {
     Visitor visitor;
@@ -70,7 +71,7 @@ static GenericList *qapi_clone_next_list(Visitor *v, GenericList *tail,
 
 static void qapi_clone_start_alternate(Visitor *v, const char *name,
                                        GenericAlternate **obj, size_t size,
-                                       bool promote_int, Error **errp)
+                                       Error **errp)
 {
     qapi_clone_start_struct(v, name, (void **)obj, size, errp);
 }
@@ -127,12 +128,13 @@ static void qapi_clone_type_number(Visitor *v, const char *name, double *obj,
     /* Value was already cloned by g_memdup() */
 }
 
-static void qapi_clone_type_null(Visitor *v, const char *name, Error **errp)
+static void qapi_clone_type_null(Visitor *v, const char *name, QNull **obj,
+                                 Error **errp)
 {
     QapiCloneVisitor *qcv = to_qcv(v);
 
     assert(qcv->depth);
-    /* Nothing to do */
+    *obj = qnull();
 }
 
 static void qapi_clone_free(Visitor *v)

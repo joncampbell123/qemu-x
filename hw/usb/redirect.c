@@ -26,6 +26,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/units.h"
 #include "qapi/error.h"
 #include "qemu-common.h"
 #include "qemu/timer.h"
@@ -106,10 +107,10 @@ struct USBRedirDevice {
     USBDevice dev;
     /* Properties */
     CharBackend cs;
-    uint8_t debug;
-    char *filter_str;
-    int32_t bootindex;
     bool enable_streams;
+    uint8_t debug;
+    int32_t bootindex;
+    char *filter_str;
     /* Data passed from chardev the fd_read cb to the usbredirparser read cb */
     const uint8_t *read_buf;
     int read_buf_size;
@@ -193,7 +194,7 @@ static void usbredir_handle_status(USBRedirDevice *dev, USBPacket *p,
 #define WARNING(...) \
     do { \
         if (dev->debug >= usbredirparser_warning) { \
-            error_report("usb-redir warning: " __VA_ARGS__); \
+            warn_report("" __VA_ARGS__); \
         } \
     } while (0)
 #define INFO(...) \
@@ -273,10 +274,9 @@ static gboolean usbredir_write_unblocked(GIOChannel *chan, GIOCondition cond,
 static int usbredir_write(void *priv, uint8_t *data, int count)
 {
     USBRedirDevice *dev = priv;
-    Chardev *chr = qemu_chr_fe_get_driver(&dev->cs);
     int r;
 
-    if (!chr->be_open) {
+    if (!qemu_chr_fe_backend_open(&dev->cs)) {
         return 0;
     }
 
@@ -796,7 +796,7 @@ static void usbredir_handle_bulk_data(USBRedirDevice *dev, USBPacket *p,
            usbredirparser_peer_has_cap(dev->parser,
                                        usb_redir_cap_32bits_bulk_length));
 
-    if (ep & USB_DIR_IN) {
+    if (ep & USB_DIR_IN || size == 0) {
         usbredirparser_send_bulk_packet(dev->parser, p->id,
                                         &bulk_packet, NULL, 0);
     } else {
@@ -1299,7 +1299,7 @@ static int usbredir_chardev_can_read(void *opaque)
     }
 
     /* usbredir_parser_do_read will consume *all* data we give it */
-    return 1024 * 1024;
+    return 1 * MiB;
 }
 
 static void usbredir_chardev_read(void *opaque, const uint8_t *buf, int size)
@@ -1366,7 +1366,7 @@ static void usbredir_realize(USBDevice *udev, Error **errp)
     USBRedirDevice *dev = USB_REDIRECT(udev);
     int i;
 
-    if (!qemu_chr_fe_get_driver(&dev->cs)) {
+    if (!qemu_chr_fe_backend_connected(&dev->cs)) {
         error_setg(errp, QERR_MISSING_PARAMETER, "chardev");
         return;
     }
@@ -1399,7 +1399,7 @@ static void usbredir_realize(USBDevice *udev, Error **errp)
     /* Let the backend know we are ready */
     qemu_chr_fe_set_handlers(&dev->cs, usbredir_chardev_can_read,
                              usbredir_chardev_read, usbredir_chardev_event,
-                             dev, NULL, true);
+                             NULL, dev, NULL, true);
 
     dev->vmstate =
         qemu_add_vm_change_state_handler(usbredir_vm_state_change, dev);
@@ -1728,6 +1728,7 @@ static void usbredir_ep_info(void *priv,
     USBRedirDevice *dev = priv;
     int i;
 
+    assert(dev != NULL);
     for (i = 0; i < MAX_ENDPOINTS; i++) {
         dev->endpoint[i].type = ep_info->type[i];
         dev->endpoint[i].interval = ep_info->interval[i];
@@ -2112,18 +2113,20 @@ static void usbredir_buffered_bulk_packet(void *priv, uint64_t id,
  * Migration code
  */
 
-static void usbredir_pre_save(void *priv)
+static int usbredir_pre_save(void *priv)
 {
     USBRedirDevice *dev = priv;
 
     usbredir_fill_already_in_flight(dev);
+
+    return 0;
 }
 
 static int usbredir_post_load(void *priv, int version_id)
 {
     USBRedirDevice *dev = priv;
 
-    if (dev->parser == NULL) {
+    if (dev == NULL || dev->parser == NULL) {
         return 0;
     }
 
@@ -2153,7 +2156,7 @@ static int usbredir_post_load(void *priv, int version_id)
 
 /* For usbredirparser migration */
 static int usbredir_put_parser(QEMUFile *f, void *priv, size_t unused,
-                               VMStateField *field, QJSON *vmdesc)
+                               const VMStateField *field, QJSON *vmdesc)
 {
     USBRedirDevice *dev = priv;
     uint8_t *data;
@@ -2176,7 +2179,7 @@ static int usbredir_put_parser(QEMUFile *f, void *priv, size_t unused,
 }
 
 static int usbredir_get_parser(QEMUFile *f, void *priv, size_t unused,
-                               VMStateField *field)
+                               const VMStateField *field)
 {
     USBRedirDevice *dev = priv;
     uint8_t *data;
@@ -2220,7 +2223,7 @@ static const VMStateInfo usbredir_parser_vmstate_info = {
 
 /* For buffered packets (iso/irq) queue migration */
 static int usbredir_put_bufpq(QEMUFile *f, void *priv, size_t unused,
-                              VMStateField *field, QJSON *vmdesc)
+                              const VMStateField *field, QJSON *vmdesc)
 {
     struct endp_data *endp = priv;
     USBRedirDevice *dev = endp->dev;
@@ -2243,7 +2246,7 @@ static int usbredir_put_bufpq(QEMUFile *f, void *priv, size_t unused,
 }
 
 static int usbredir_get_bufpq(QEMUFile *f, void *priv, size_t unused,
-                              VMStateField *field)
+                              const VMStateField *field)
 {
     struct endp_data *endp = priv;
     USBRedirDevice *dev = endp->dev;
@@ -2347,7 +2350,7 @@ static const VMStateDescription usbredir_ep_vmstate = {
 
 /* For PacketIdQueue migration */
 static int usbredir_put_packet_id_q(QEMUFile *f, void *priv, size_t unused,
-                                    VMStateField *field, QJSON *vmdesc)
+                                    const VMStateField *field, QJSON *vmdesc)
 {
     struct PacketIdQueue *q = priv;
     USBRedirDevice *dev = q->dev;
@@ -2366,7 +2369,7 @@ static int usbredir_put_packet_id_q(QEMUFile *f, void *priv, size_t unused,
 }
 
 static int usbredir_get_packet_id_q(QEMUFile *f, void *priv, size_t unused,
-                                    VMStateField *field)
+                                    const VMStateField *field)
 {
     struct PacketIdQueue *q = priv;
     USBRedirDevice *dev = q->dev;

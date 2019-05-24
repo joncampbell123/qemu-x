@@ -183,9 +183,11 @@
 #define PCI_VENDOR_ID_APPLE              0x106b
 #define PCI_DEVICE_ID_APPLE_UNI_N_AGP    0x0020
 #define PCI_DEVICE_ID_APPLE_U3_AGP       0x004b
+#define PCI_DEVICE_ID_APPLE_UNI_N_GMAC   0x0021
 
 #define PCI_VENDOR_ID_SUN                0x108e
 #define PCI_DEVICE_ID_SUN_EBUS           0x1000
+#define PCI_DEVICE_ID_SUN_HME            0x1001
 #define PCI_DEVICE_ID_SUN_SIMBA          0x5000
 #define PCI_DEVICE_ID_SUN_SABRE          0xa000
 
@@ -253,7 +255,7 @@
 #define PCI_DEVICE_ID_INTEL_82801I_EHCI2 0x293c
 #define PCI_DEVICE_ID_INTEL_82599_SFP_VF 0x10ed
 
-#define PCI_DEVICE_ID_INTEL_Q35_MCH      0x29c0
+#define PCI_DEVICE_ID_INTEL_P35_MCH      0x29c0
 
 #define PCI_VENDOR_ID_XEN                0x5853
 #define PCI_DEVICE_ID_XEN_PLATFORM       0x0001
@@ -263,5 +265,12 @@
 
 #define PCI_VENDOR_ID_TEWS               0x1498
 #define PCI_DEVICE_ID_TEWS_TPCI200       0x30C8
+
+#define PCI_VENDOR_ID_VMWARE             0x15ad
+#define PCI_DEVICE_ID_VMWARE_PVRDMA      0x0820
+
+#define PCI_VENDOR_ID_SYNOPSYS           0x16C3
+
+#define PCI_VENDOR_ID_NVIDIA             0x10de
 
 #endif

@@ -1,9 +1,8 @@
 #ifndef FMOPL_H
 #define FMOPL_H
 
-#include <stdint.h>
 
-typedef void (*OPL_TIMERHANDLER)(int channel,double interval_Sec);
+typedef void (*OPL_TIMERHANDLER)(void *param, int channel, double interval_Sec);
 
 /* !!!!! here is private section , do not access there member direct !!!!! */
 
@@ -73,8 +72,8 @@ typedef struct fm_opl_f {
 	/* Rhythm sention */
 	uint8_t rhythm;		/* Rhythm mode , key flag */
 	/* time tables */
-	int32_t AR_TABLE[75];	/* atttack rate tables */
-	int32_t DR_TABLE[75];	/* decay rate tables   */
+	int32_t AR_TABLE[76];	/* attack rate tables  */
+	int32_t DR_TABLE[76];	/* decay rate tables   */
 	uint32_t FN_TABLE[1024];  /* fnumber -> increment counter */
 	/* LFO */
 	int32_t *ams_table;
@@ -87,13 +86,14 @@ typedef struct fm_opl_f {
 	uint8_t wavesel;
 	/* external event callback handler */
 	OPL_TIMERHANDLER  TimerHandler;		/* TIMER handler   */
-	int TimerParam;						/* TIMER parameter */
+    void *TimerParam; /* TIMER parameter */
 } FM_OPL;
 
 /* ---------- Generic interface section ---------- */
 FM_OPL *OPLCreate(int clock, int rate);
 void OPLDestroy(FM_OPL *OPL);
-void OPLSetTimerHandler(FM_OPL *OPL,OPL_TIMERHANDLER TimerHandler,int channelOffset);
+void OPLSetTimerHandler(FM_OPL *OPL, OPL_TIMERHANDLER TimerHandler,
+                        void *param);
 
 int OPLWrite(FM_OPL *OPL,int a,int v);
 unsigned char OPLRead(FM_OPL *OPL,int a);

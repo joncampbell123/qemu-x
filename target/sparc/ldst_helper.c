@@ -198,7 +198,7 @@ static void demap_tlb(SparcTLBEntry *tlb, target_ulong demap_addr,
             replace_tlb_entry(&tlb[i], 0, 0, env1);
 #ifdef DEBUG_MMU
             DPRINTF_MMU("%s demap invalidated entry [%02u]\n", strmmu, i);
-            dump_mmu(stdout, fprintf, env1);
+            dump_mmu(env1);
 #endif
         }
     }
@@ -260,7 +260,7 @@ static void replace_tlb_1bit_lru(SparcTLBEntry *tlb,
             replace_tlb_entry(&tlb[i], tlb_tag, tlb_tte, env1);
 #ifdef DEBUG_MMU
             DPRINTF_MMU("%s lru replaced invalid entry [%i]\n", strmmu, i);
-            dump_mmu(stdout, fprintf, env1);
+            dump_mmu(env1);
 #endif
             return;
         }
@@ -279,7 +279,7 @@ static void replace_tlb_1bit_lru(SparcTLBEntry *tlb,
 #ifdef DEBUG_MMU
                 DPRINTF_MMU("%s lru replaced unlocked %s entry [%i]\n",
                             strmmu, (replace_used ? "used" : "unused"), i);
-                dump_mmu(stdout, fprintf, env1);
+                dump_mmu(env1);
 #endif
                 return;
             }
@@ -513,7 +513,7 @@ uint64_t helper_ld_asi(CPUSPARCState *env, target_ulong addr,
         case 0x00:          /* Leon3 Cache Control */
         case 0x08:          /* Leon3 Instruction Cache config */
         case 0x0C:          /* Leon3 Date Cache config */
-            if (env->def->features & CPU_FEATURE_CACHE_CTRL) {
+            if (env->def.features & CPU_FEATURE_CACHE_CTRL) {
                 ret = leon3_cache_control_ld(env, addr, size);
             }
             break;
@@ -736,7 +736,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val,
         case 0x00:          /* Leon3 Cache Control */
         case 0x08:          /* Leon3 Instruction Cache config */
         case 0x0C:          /* Leon3 Date Cache config */
-            if (env->def->features & CPU_FEATURE_CACHE_CTRL) {
+            if (env->def.features & CPU_FEATURE_CACHE_CTRL) {
                 leon3_cache_control_st(env, addr, val, size);
             }
             break;
@@ -886,7 +886,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val,
                 break;
             }
 #ifdef DEBUG_MMU
-            dump_mmu(stdout, fprintf, env);
+            dump_mmu(env);
 #endif
         }
         break;
@@ -904,15 +904,15 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val,
                 /* Mappings generated during no-fault mode
                    are invalid in normal mode.  */
                 if ((oldreg ^ env->mmuregs[reg])
-                    & (MMU_NF | env->def->mmu_bm)) {
+                    & (MMU_NF | env->def.mmu_bm)) {
                     tlb_flush(CPU(cpu));
                 }
                 break;
             case 1: /* Context Table Pointer Register */
-                env->mmuregs[reg] = val & env->def->mmu_ctpr_mask;
+                env->mmuregs[reg] = val & env->def.mmu_ctpr_mask;
                 break;
             case 2: /* Context Register */
-                env->mmuregs[reg] = val & env->def->mmu_cxr_mask;
+                env->mmuregs[reg] = val & env->def.mmu_cxr_mask;
                 if (oldreg != env->mmuregs[reg]) {
                     /* we flush when the MMU context changes because
                        QEMU has no MMU context support */
@@ -923,11 +923,11 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val,
             case 4: /* Synchronous Fault Address Register */
                 break;
             case 0x10: /* TLB Replacement Control Register */
-                env->mmuregs[reg] = val & env->def->mmu_trcr_mask;
+                env->mmuregs[reg] = val & env->def.mmu_trcr_mask;
                 break;
             case 0x13: /* Synchronous Fault Status Register with Read
                           and Clear */
-                env->mmuregs[3] = val & env->def->mmu_sfsr_mask;
+                env->mmuregs[3] = val & env->def.mmu_sfsr_mask;
                 break;
             case 0x14: /* Synchronous Fault Address Register */
                 env->mmuregs[4] = val;
@@ -941,7 +941,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val,
                             reg, oldreg, env->mmuregs[reg]);
             }
 #ifdef DEBUG_MMU
-            dump_mmu(stdout, fprintf, env);
+            dump_mmu(env);
 #endif
         }
         break;
@@ -1634,7 +1634,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, target_ulong val,
                             PRIx64 "\n", reg, oldreg, env->immuregs[reg]);
             }
 #ifdef DEBUG_MMU
-            dump_mmu(stdout, fprintf, env);
+            dump_mmu(env);
 #endif
             return;
         }
@@ -1658,7 +1658,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, target_ulong val,
             }
 #ifdef DEBUG_MMU
             DPRINTF_MMU("immu data access replaced entry [%i]\n", i);
-            dump_mmu(stdout, fprintf, env);
+            dump_mmu(env);
 #endif
             return;
         }
@@ -1718,7 +1718,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, target_ulong val,
                             PRIx64 "\n", reg, oldreg, env->dmmuregs[reg]);
             }
 #ifdef DEBUG_MMU
-            dump_mmu(stdout, fprintf, env);
+            dump_mmu(env);
 #endif
             return;
         }
@@ -1740,7 +1740,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, target_ulong val,
             }
 #ifdef DEBUG_MMU
             DPRINTF_MMU("dmmu data access replaced entry [%i]\n", i);
-            dump_mmu(stdout, fprintf, env);
+            dump_mmu(env);
 #endif
             return;
         }
@@ -1923,20 +1923,5 @@ void QEMU_NORETURN sparc_cpu_do_unaligned_access(CPUState *cs, vaddr addr,
            "\n", addr, env->pc);
 #endif
     cpu_raise_exception_ra(env, TT_UNALIGNED, retaddr);
-}
-
-/* try to fill the TLB and return an exception if error. If retaddr is
-   NULL, it means that the function was called in C code (i.e. not
-   from generated code or from helper.c) */
-/* XXX: fix it to restore all registers */
-void tlb_fill(CPUState *cs, target_ulong addr, MMUAccessType access_type,
-              int mmu_idx, uintptr_t retaddr)
-{
-    int ret;
-
-    ret = sparc_cpu_handle_mmu_fault(cs, addr, access_type, mmu_idx);
-    if (ret) {
-        cpu_loop_exit_restore(cs, retaddr);
-    }
 }
 #endif

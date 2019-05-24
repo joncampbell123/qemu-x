@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Test corner cases with unusual block geometries
 #
-# Copyright (C) 2016-2017 Red Hat, Inc.
+# Copyright (C) 2016-2018 Red Hat, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,7 +24,6 @@ owner=eblake@redhat.com
 seq=`basename $0`
 echo "QA output created by $seq"
 
-here=`pwd`
 status=1	# failure is the default!
 
 _cleanup()
@@ -36,6 +35,9 @@ trap "_cleanup; exit \$status" 0 1 2 3 15
 # get standard environment, filters and checks
 . ./common.rc
 . ./common.filter
+
+# This test is runnable under compat=0.10; see test 204 for additional
+# tests specific to compat=1.1.
 
 _supported_fmt qcow2
 _supported_proto file
@@ -83,7 +85,7 @@ $QEMU_IO -c "open -o $options,$limits blkdebug::$TEST_IMG" \
 echo
 echo "== verify image content =="
 
-function verify_io()
+verify_io()
 {
     if ($QEMU_IMG info -f "$IMGFMT" "$TEST_IMG" |
 	    grep "compat: 0.10" > /dev/null); then

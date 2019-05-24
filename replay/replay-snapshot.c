@@ -21,19 +21,30 @@
 #include "migration/vmstate.h"
 #include "migration/snapshot.h"
 
-static void replay_pre_save(void *opaque)
+static int replay_pre_save(void *opaque)
 {
     ReplayState *state = opaque;
     state->file_offset = ftell(replay_file);
+    state->host_clock_last = qemu_clock_get_last(QEMU_CLOCK_HOST);
+
+    return 0;
 }
 
 static int replay_post_load(void *opaque, int version_id)
 {
     ReplayState *state = opaque;
-    fseek(replay_file, state->file_offset, SEEK_SET);
-    /* If this was a vmstate, saved in recording mode,
-       we need to initialize replay data fields. */
-    replay_fetch_data_kind();
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        fseek(replay_file, state->file_offset, SEEK_SET);
+        qemu_clock_set_last(QEMU_CLOCK_HOST, state->host_clock_last);
+        /* If this was a vmstate, saved in recording mode,
+           we need to initialize replay data fields. */
+        replay_fetch_data_kind();
+    } else if (replay_mode == REPLAY_MODE_RECORD) {
+        /* This is only useful for loading the initial state.
+           Therefore reset all the counters. */
+        state->instructions_count = 0;
+        state->block_request_id = 0;
+    }
 
     return 0;
 }
@@ -52,6 +63,10 @@ static const VMStateDescription vmstate_replay = {
         VMSTATE_UINT32(has_unread_data, ReplayState),
         VMSTATE_UINT64(file_offset, ReplayState),
         VMSTATE_UINT64(block_request_id, ReplayState),
+        VMSTATE_UINT64(host_clock_last, ReplayState),
+        VMSTATE_INT32(read_event_kind, ReplayState),
+        VMSTATE_UINT64(read_event_id, ReplayState),
+        VMSTATE_INT32(read_event_checkpoint, ReplayState),
         VMSTATE_END_OF_LIST()
     },
 };
@@ -80,4 +95,10 @@ void replay_vmstate_init(void)
             }
         }
     }
+}
+
+bool replay_can_snapshot(void)
+{
+    return replay_mode == REPLAY_MODE_NONE
+        || !replay_has_events();
 }
